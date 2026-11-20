@@ -1,0 +1,199 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "TenancyManager API",
+    "version": "v1"
+  },
+  "paths": {
+    "/api/me": {
+      "get": {
+        "tags": [
+          "Identity"
+        ],
+        "summary": "The signed-in user, their roles and current agency (IAM-003).",
+        "operationId": "GetCurrentUser",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/properties": {
+      "get": {
+        "tags": [
+          "Properties"
+        ],
+        "summary": "The current agency's properties, ordered by town then address (PRP-001).",
+        "operationId": "ListProperties",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PropertyResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/properties/{id}": {
+      "get": {
+        "tags": [
+          "Properties"
+        ],
+        "summary": "A single property. 404 for unknown ids and other agencies' properties (PRP-003, AGY-002).",
+        "operationId": "GetProperty",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PropertyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgencyResponse": {
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "Jurisdiction": {
+        "enum": [
+          "England",
+          "Wales",
+          "Scotland"
+        ]
+      },
+      "MeResponse": {
+        "required": [
+          "userName",
+          "displayName",
+          "roles",
+          "agency"
+        ],
+        "type": "object",
+        "properties": {
+          "userName": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "agency": {
+            "$ref": "#/components/schemas/AgencyResponse"
+          }
+        }
+      },
+      "PropertyResponse": {
+        "required": [
+          "id",
+          "line1",
+          "line2",
+          "town",
+          "postcode",
+          "jurisdiction",
+          "bedrooms",
+          "landlordId",
+          "landlordName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "line1": {
+            "type": "string"
+          },
+          "line2": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "town": {
+            "type": "string"
+          },
+          "postcode": {
+            "type": "string"
+          },
+          "jurisdiction": {
+            "$ref": "#/components/schemas/Jurisdiction"
+          },
+          "bedrooms": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "landlordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "landlordName": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Identity"
+    },
+    {
+      "name": "Properties"
+    }
+  ]
+}

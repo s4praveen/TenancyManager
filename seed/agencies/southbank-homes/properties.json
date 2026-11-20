@@ -1,0 +1,12 @@
+[
+  {
+    "id": "b2000000-0000-0000-0000-000000000001",
+    "address": { "line1": "101 Southwark Street", "town": "London", "postcode": "SE1 0JF" },
+    "jurisdiction": "England", "bedrooms": 2, "landlordId": "a2000000-0000-0000-0000-000000000001"
+  },
+  {
+    "id": "b2000000-0000-0000-0000-000000000002",
+    "address": { "line1": "5 Borough High Street", "town": "London", "postcode": "SE1 9QQ" },
+    "jurisdiction": "England", "bedrooms": 1, "landlordId": "a2000000-0000-0000-0000-000000000001"
+  }
+]

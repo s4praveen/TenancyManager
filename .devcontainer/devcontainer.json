@@ -1,0 +1,25 @@
+{
+  // Linux dev environment with everything needed to run the full test suite
+  // (useful on Windows machines where Smart App Control blocks locally built .NET assemblies).
+  "name": "TenancyManager",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:10.0",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "24" },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/azure-cli:1": {},
+    "ghcr.io/azure/azure-dev/azd:0": {}
+  },
+  "forwardPorts": [5080, 5173],
+  "postCreateCommand": "dotnet tool restore && dotnet restore TenancyManager.slnx && (cd src/web && npm ci) && (cd tests/e2e && npm ci && npx playwright install --with-deps chromium)",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csdevkit",
+        "reqnroll.reqnroll-vscode",
+        "ms-azuretools.vscode-bicep",
+        "ms-playwright.playwright",
+        "oxc.oxc-vscode"
+      ]
+    }
+  }
+}

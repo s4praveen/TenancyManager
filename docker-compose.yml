@@ -1,0 +1,49 @@
+# Full local stack: PostgreSQL + API (Postgres provider, Dev auth) + web.
+#   docker compose up --build        -> http://localhost:8080
+#   docker compose up -d postgres    -> just the database for `dotnet run`
+name: tenancymanager
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: tenancymanager
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres   # local only
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tenancymanager"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: src/api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Auth__Mode: Dev
+      DataProvider__Type: Postgres
+      ConnectionStrings__Postgres: Host=postgres;Database=tenancymanager;Username=postgres;Password=postgres
+    ports:
+      - "5080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: src/web
+      args:
+        VITE_AUTH_MODE: dev
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

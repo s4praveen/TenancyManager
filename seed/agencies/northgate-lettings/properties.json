@@ -1,0 +1,22 @@
+[
+  {
+    "id": "b1000000-0000-0000-0000-000000000001",
+    "address": { "line1": "14 Castle Street", "town": "Cardiff", "postcode": "CF10 1BU" },
+    "jurisdiction": "Wales", "bedrooms": 2, "landlordId": "a1000000-0000-0000-0000-000000000001"
+  },
+  {
+    "id": "b1000000-0000-0000-0000-000000000002",
+    "address": { "line1": "3/2 Marchmont Road", "town": "Edinburgh", "postcode": "EH9 1HY" },
+    "jurisdiction": "Scotland", "bedrooms": 3, "landlordId": "a1000000-0000-0000-0000-000000000002"
+  },
+  {
+    "id": "b1000000-0000-0000-0000-000000000003",
+    "address": { "line1": "Flat 6", "line2": "27 Quay Street", "town": "Manchester", "postcode": "M3 3JE" },
+    "jurisdiction": "England", "bedrooms": 1, "landlordId": "a1000000-0000-0000-0000-000000000003"
+  },
+  {
+    "id": "b1000000-0000-0000-0000-000000000004",
+    "address": { "line1": "8 Bootham Terrace", "town": "York", "postcode": "YO30 7BW" },
+    "jurisdiction": "England", "bedrooms": 4, "landlordId": "a1000000-0000-0000-0000-000000000003"
+  }
+]

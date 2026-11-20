@@ -1,0 +1,45 @@
+name: Deploy to Azure
+
+# Manual for now. Requires (Settings → Environments → <env>):
+#   vars:    AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, AZURE_LOCATION (uksouth),
+#            ENTRA_TENANT_ID, ENTRA_API_CLIENT_ID, ENTRA_WEB_CLIENT_ID
+#   secrets: POSTGRES_ADMIN_PASSWORD
+# AZURE_CLIENT_ID is an app registration with a federated credential for this repo/environment (OIDC, no secrets).
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: azd environment name
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      AZURE_ENV_NAME: ${{ inputs.environment }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+      ENTRA_API_CLIENT_ID: ${{ vars.ENTRA_API_CLIENT_ID }}
+      ENTRA_WEB_CLIENT_ID: ${{ vars.ENTRA_WEB_CLIENT_ID }}
+      POSTGRES_ADMIN_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with: { global-json-file: global.json }
+      - uses: actions/setup-node@v5
+        with: { node-version: 24 }
+      - uses: Azure/setup-azd@v2
+      - name: azd login (OIDC)
+        run: >-
+          azd auth login --client-id "${{ vars.AZURE_CLIENT_ID }}"
+          --federated-credential-provider github --tenant-id "${{ vars.AZURE_TENANT_ID }}"
+      - run: azd provision --no-prompt
+      - run: azd deploy --no-prompt

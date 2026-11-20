@@ -1,0 +1,19 @@
+schema: spec-driven
+
+context: |
+  TenancyManager: web app for UK letting agents (England, Wales, Scotland) managing landlords,
+  properties, tenants, tenancies, deposits, compliance and rent.
+  Currently a single agency on single-tenant Entra ID; must evolve to multi-agency SaaS without schema change.
+  Every requirement header carries an ID, e.g. "### Requirement: TEN-003 Deposit cap" (prefixes listed in CLAUDE.md).
+  Every scenario becomes a Reqnroll scenario tagged with that ID, so write scenarios as concrete, testable GIVEN/WHEN/THEN.
+  Behaviour that differs by country must name the jurisdiction in each scenario.
+  Legal values (deadlines, caps, notice periods) must cite their statutory source; never invent them.
+  Data must behave identically on the JSON stub provider and PostgreSQL.
+
+rules:
+  proposal:
+    - State what is out of scope
+    - Note any jurisdiction-specific impact (England / Wales / Scotland)
+  tasks:
+    - Include acceptance-test (Reqnroll) tasks for every new or changed requirement ID
+    - Include both Json and Postgres provider work when persistence changes
