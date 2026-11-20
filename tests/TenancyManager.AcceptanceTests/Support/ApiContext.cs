@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -37,13 +36,17 @@ public sealed class ApiContext : IDisposable
         }
 
         Response = await Client().SendAsync(request);
+        // Buffer once: several Then steps read the same response, and the stream is single-use.
+        Body = await Response.Content.ReadAsStringAsync();
     }
 
-    public async Task<T> ReadAsync<T>()
+    public string Body { get; private set; } = string.Empty;
+
+    public Task<T> ReadAsync<T>()
     {
         Response.ShouldNotBeNull();
-        Response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        return (await Response.Content.ReadFromJsonAsync<T>(Json))!;
+        Response.StatusCode.ShouldBe(HttpStatusCode.OK, Body);
+        return Task.FromResult(JsonSerializer.Deserialize<T>(Body, Json)!);
     }
 
     public void TryStart()

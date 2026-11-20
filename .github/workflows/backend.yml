@@ -1,0 +1,78 @@
+name: Backend
+
+# .NET API: build (warnings as errors), unit + Reqnroll acceptance + Postgres contract tests,
+# EF Core migration drift, OpenAPI document drift.
+on:
+  pull_request:
+    paths:
+      - 'src/api/**'
+      - 'tests/TenancyManager.*/**'
+      - 'tests/Directory.Build.props'
+      - 'seed/**'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - 'global.json'
+      - 'TenancyManager.slnx'
+      - '.config/dotnet-tools.json'
+      - '.github/workflows/backend.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/api/**'
+      - 'tests/TenancyManager.*/**'
+      - 'tests/Directory.Build.props'
+      - 'seed/**'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - 'global.json'
+      - 'TenancyManager.slnx'
+      - '.config/dotnet-tools.json'
+      - '.github/workflows/backend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-test:
+    name: Build + test
+    runs-on: ubuntu-latest
+    env:
+      REQUIRE_DOCKER: '1' # Postgres contract tests must run (not skip) in CI
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with: { global-json-file: global.json }
+      - run: dotnet tool restore
+      - run: dotnet restore TenancyManager.slnx
+      - run: dotnet build TenancyManager.slnx -c Release --no-restore
+      - run: >-
+          dotnet test TenancyManager.slnx -c Release --no-build
+          --logger "trx" --results-directory test-results
+      - name: EF Core model matches migrations
+        run: dotnet ef migrations has-pending-model-changes -p src/api/TenancyManager.Infrastructure -s src/api/TenancyManager.Api
+      - name: OpenAPI document is up to date
+        run: |
+          dotnet build src/api/TenancyManager.Api -c Release -p:OpenApiGenerateDocumentsOnBuild=true
+          git diff --exit-code -- src/api/TenancyManager.Api/openapi \
+            || (echo "::error::openapi.json is stale. Run 'npm run api:generate' in src/web and commit." && exit 1)
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: backend-test-results
+          path: test-results
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -f src/api/Dockerfile -t tenancymanager-api:ci .

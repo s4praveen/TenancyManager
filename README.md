@@ -34,9 +34,9 @@ The API applies migrations and seeds an empty database from the same `seed/` fil
 
 | What | Command |
 |---|---|
-| Unit, acceptance (Reqnroll), provider contract tests | `dotnet test` |
-| Web unit tests, lint, types | `cd src/web && npm test && npm run lint && npm run typecheck` |
-| End-to-end (starts API + web) | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
+| Unit, acceptance (Reqnroll), provider contract tests | `dotnet test` (CI: [backend.yml](.github/workflows/backend.yml)) |
+| Web unit tests, lint, types | `cd src/web && npm test && npm run lint && npm run typecheck` (CI: [frontend.yml](.github/workflows/frontend.yml)) |
+| End-to-end (starts API + web; CI: [quality.yml](.github/workflows/quality.yml)) | `cd tests/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 | Spec validation | `npx @fission-ai/openspec@2.1.1 validate --all --strict` |
 | Requirement → test traceability | `node scripts/check-traceability.mjs --verbose` |
 

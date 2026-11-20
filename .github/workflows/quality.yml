@@ -1,0 +1,53 @@
+name: Specs + E2E
+
+# Cross-cutting checks: OpenSpec validation, requirement→test traceability, Playwright end-to-end.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENSPEC_TELEMETRY: 0
+  DOTNET_NOLOGO: true
+
+jobs:
+  specs:
+    name: OpenSpec + traceability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 24 }
+      - run: npx -y @fission-ai/openspec@2.1.1 validate --all --strict
+      - run: node scripts/check-traceability.mjs --verbose
+
+  e2e:
+    name: Playwright smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with: { global-json-file: global.json }
+      - uses: actions/setup-node@v5
+        with: { node-version: 24 }
+      - run: npm ci
+        working-directory: src/web
+      - run: npm ci && npx playwright install --with-deps chromium
+        working-directory: tests/e2e
+      - run: dotnet build src/api/TenancyManager.Api
+      - run: npx playwright test
+        working-directory: tests/e2e
+        env: { CI: 'true' }
+      - uses: actions/upload-artifact@v5
+        if: failure()
+        with:
+          name: playwright-report
+          path: tests/e2e/playwright-report

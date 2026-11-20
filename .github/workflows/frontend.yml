@@ -1,0 +1,65 @@
+name: Frontend
+
+# React SPA: generated-client drift, typecheck, lint, unit tests, production build.
+on:
+  pull_request:
+    paths:
+      - 'src/web/**'
+      - 'src/api/TenancyManager.Api/openapi/**'
+      - '.github/workflows/frontend.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/web/**'
+      - 'src/api/TenancyManager.Api/openapi/**'
+      - '.github/workflows/frontend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: src/web
+
+jobs:
+  build-test:
+    name: Build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - run: node --version && npm --version
+      - run: npm ci
+      - name: Show npm debug log
+        if: failure()
+        run: tail -n 120 ~/.npm/_logs/*-debug-0.log || true
+      - name: Generated API client is up to date
+        run: |
+          npx orval --config orval.config.ts
+          git diff --exit-code -- src/api/generated \
+            || (echo "::error::Generated client is stale. Run 'npm run api:generate' and commit." && exit 1)
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v5
+        with:
+          name: web-dist
+          path: src/web/dist
+          retention-days: 7
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t tenancymanager-web:ci src/web
