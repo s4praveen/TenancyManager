@@ -60,6 +60,9 @@ jobs:
   docker:
     name: Docker image builds
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: . # workflow default is src/web; docker needs the repo root
     steps:
       - uses: actions/checkout@v5
       - run: docker build -t tenancymanager-web:ci src/web
