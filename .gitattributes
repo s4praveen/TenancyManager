@@ -1,0 +1,8 @@
+# Normalise to LF everywhere so Windows, Linux CI and the dev container agree,
+# and generated files (OpenAPI, Orval client) never show spurious diffs.
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.png binary
+*.ico binary
+*.svg text
