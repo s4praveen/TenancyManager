@@ -6,12 +6,16 @@
   TenancyManager-API  : exposes scope 'access_as_user' and app roles AgencyAdmin, Agent, Accounts, ReadOnly.
   TenancyManager-Web  : SPA (auth code + PKCE) that requests the API scope.
 
-  Idempotent-ish: re-running finds existing apps by display name and updates them.
-  Requires Azure CLI and permission to create app registrations in the tenant.
-  Review before running. Nothing here is executed by CI.
+  Safe to re-run: it finds existing apps by display name and updates them (ids stay stable).
+  Works in Windows PowerShell 5.1 and PowerShell 7. Requires the Azure CLI, signed in to the tenant,
+  and permission to create app registrations.
 
 .EXAMPLE
-  ./scripts/entra/register-apps.ps1 -TenantId <tenant-guid> -AssignMeRole AgencyAdmin
+  ./scripts/entra/register-apps.ps1 -TenantId <tenant-guid> -AssignMeRole AgencyAdmin -GrantAdminConsent
+
+.EXAMPLE
+  # After the first deployment, add the Static Web App URL as a redirect URI:
+  ./scripts/entra/register-apps.ps1 -TenantId <tenant-guid> -SpaRedirectUris http://localhost:5173, https://<your-app>.azurestaticapps.net
 #>
 [CmdletBinding()]
 param(
@@ -19,47 +23,65 @@ param(
   [string[]] $SpaRedirectUris = @('http://localhost:5173'),
   [string] $ApiName = 'TenancyManager-API',
   [string] $WebName = 'TenancyManager-Web',
-  [ValidateSet('', 'AgencyAdmin', 'Agent', 'Accounts', 'ReadOnly')] [string] $AssignMeRole = ''
+  [ValidateSet('', 'AgencyAdmin', 'Agent', 'Accounts', 'ReadOnly')] [string] $AssignMeRole = '',
+  [switch] $GrantAdminConsent
 )
 
 $ErrorActionPreference = 'Stop'
 $graph = 'https://graph.microsoft.com/v1.0'
 
 function Invoke-Graph([string] $Method, [string] $Uri, $Body) {
-  $args = @('rest', '--method', $Method, '--uri', $Uri, '--headers', 'Content-Type=application/json')
+  $azArgs = @('rest', '--method', $Method, '--uri', $Uri, '--headers', 'Content-Type=application/json')
+  $file = $null
   if ($null -ne $Body) {
-    $file = New-TemporaryFile
-    ($Body | ConvertTo-Json -Depth 20) | Set-Content -Path $file -Encoding utf8
-    $args += @('--body', "@$file")
+    # UTF-8 *without* BOM: Windows PowerShell's Set-Content adds a BOM that breaks JSON parsing.
+    $file = [IO.Path]::GetTempFileName()
+    [IO.File]::WriteAllText($file, ($Body | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding $false))
+    $azArgs += @('--body', "@$file")
   }
-  $out = az @args
-  if ($LASTEXITCODE -ne 0) { throw "Graph $Method $Uri failed" }
-  if ($out) { return ($out | ConvertFrom-Json) }
+  try {
+    $out = az @azArgs
+    if ($LASTEXITCODE -ne 0) { throw "Graph $Method $Uri failed (see az output above)." }
+  } finally {
+    if ($file) { Remove-Item $file -ErrorAction SilentlyContinue }
+  }
+  # az prints JSON over several lines; join before parsing (PS 5.1 parses line by line otherwise).
+  $text = ($out -join "`n").Trim()
+  if ($text) { return ($text | ConvertFrom-Json) }
+}
+
+function Get-ByFilter([string] $Collection, [string] $Filter) {
+  $encoded = [Uri]::EscapeDataString($Filter)
+  return @((Invoke-Graph GET "$graph/$Collection`?`$filter=$encoded").value)
 }
 
 function Get-OrCreateApp([string] $Name) {
-  $existing = (Invoke-Graph GET "$graph/applications?`$filter=displayName eq '$Name'").value
-  if ($existing.Count -gt 0) { Write-Host "Found $Name"; return $existing[0] }
-  Write-Host "Creating $Name"
+  $existing = Get-ByFilter 'applications' "displayName eq '$Name'"
+  if ($existing.Count -gt 0) { Write-Host "Found app registration $Name"; return $existing[0] }
+  Write-Host "Creating app registration $Name"
   return Invoke-Graph POST "$graph/applications" @{ displayName = $Name; signInAudience = 'AzureADMyOrg' }
 }
 
 function Get-OrCreateServicePrincipal([string] $AppId) {
-  $sp = (Invoke-Graph GET "$graph/servicePrincipals?`$filter=appId eq '$AppId'").value
+  $sp = Get-ByFilter 'servicePrincipals' "appId eq '$AppId'"
   if ($sp.Count -gt 0) { return $sp[0] }
   return Invoke-Graph POST "$graph/servicePrincipals" @{ appId = $AppId }
 }
 
-az account show --query tenantId -o tsv | Out-Null
-if ($LASTEXITCODE -ne 0) { az login --tenant $TenantId | Out-Null }
-$current = az account show --query tenantId -o tsv
-if ($current -ne $TenantId) { throw "Azure CLI is signed in to tenant $current, expected $TenantId. Run: az login --tenant $TenantId" }
+# ---- Sign-in check ----------------------------------------------------------------------------
+$current = az account show --query tenantId -o tsv 2>$null
+if ($LASTEXITCODE -ne 0 -or $current -ne $TenantId) {
+  Write-Host "Signing in to tenant $TenantId ..."
+  az login --tenant $TenantId --allow-no-subscriptions | Out-Null
+  $current = az account show --query tenantId -o tsv
+}
+if ($current -ne $TenantId) { throw "Azure CLI is signed in to tenant $current, expected $TenantId." }
 
-# ---- API ------------------------------------------------------------------------------------
+# ---- API --------------------------------------------------------------------------------------
 $api = Get-OrCreateApp $ApiName
 
-# Keep existing ids stable on re-run.
-$scopeId = ($api.api.oauth2PermissionScopes | Where-Object value -eq 'access_as_user').id
+# Reuse existing ids on re-run so tokens and role assignments keep working.
+$scopeId = ($api.api.oauth2PermissionScopes | Where-Object { $_.value -eq 'access_as_user' }).id
 if (-not $scopeId) { $scopeId = [guid]::NewGuid().ToString() }
 
 $roleDefs = @(
@@ -68,18 +90,18 @@ $roleDefs = @(
   @{ value = 'Accounts';    displayName = 'Accounts';             description = 'Manages rent, ledgers and statements.' },
   @{ value = 'ReadOnly';    displayName = 'Read only';            description = 'Views records without changing them.' }
 )
-$appRoles = foreach ($r in $roleDefs) {
-  $id = ($api.appRoles | Where-Object value -eq $r.value).id
-  @{
-    id = $(if ($id) { $id } else { [guid]::NewGuid().ToString() })
+$appRoles = @(foreach ($r in $roleDefs) {
+  $existingId = ($api.appRoles | Where-Object { $_.value -eq $r.value }).id
+  [ordered]@{
+    id = $(if ($existingId) { $existingId } else { [guid]::NewGuid().ToString() })
     value = $r.value; displayName = $r.displayName; description = $r.description
     allowedMemberTypes = @('User'); isEnabled = $true
   }
-}
+})
 
 Invoke-Graph PATCH "$graph/applications/$($api.id)" @{
   identifierUris = @("api://$($api.appId)")
-  appRoles = @($appRoles)
+  appRoles = $appRoles
   api = @{
     requestedAccessTokenVersion = 2
     oauth2PermissionScopes = @(@{
@@ -93,7 +115,7 @@ Invoke-Graph PATCH "$graph/applications/$($api.id)" @{
 } | Out-Null
 $apiSp = Get-OrCreateServicePrincipal $api.appId
 
-# ---- Web (SPA) ------------------------------------------------------------------------------
+# ---- Web (SPA) --------------------------------------------------------------------------------
 $web = Get-OrCreateApp $WebName
 Invoke-Graph PATCH "$graph/applications/$($web.id)" @{
   spa = @{ redirectUris = @($SpaRedirectUris) }
@@ -102,38 +124,44 @@ Invoke-Graph PATCH "$graph/applications/$($web.id)" @{
     resourceAccess = @(@{ id = $scopeId; type = 'Scope' })
   })
 } | Out-Null
-Get-OrCreateServicePrincipal $web.appId | Out-Null
+$webSp = Get-OrCreateServicePrincipal $web.appId
 
-# ---- Optional: give the signed-in user a role -----------------------------------------------
+# ---- Optional: admin consent (no consent prompt for agents) ----------------------------------
+if ($GrantAdminConsent) {
+  $grants = Get-ByFilter 'oauth2PermissionGrants' "clientId eq '$($webSp.id)' and resourceId eq '$($apiSp.id)'"
+  if ($grants.Count -eq 0) {
+    Invoke-Graph POST "$graph/oauth2PermissionGrants" @{
+      clientId = $webSp.id; consentType = 'AllPrincipals'; resourceId = $apiSp.id; scope = 'access_as_user'
+    } | Out-Null
+    Write-Host 'Granted admin consent for access_as_user.'
+  } else {
+    Write-Host 'Admin consent already granted.'
+  }
+}
+
+# ---- Optional: give the signed-in user a role -------------------------------------------------
 if ($AssignMeRole) {
   $me = az ad signed-in-user show --query id -o tsv
-  $roleId = ($appRoles | Where-Object value -eq $AssignMeRole).id
-  try {
+  $roleId = ($appRoles | Where-Object { $_.value -eq $AssignMeRole }).id
+  $assigned = @((Invoke-Graph GET "$graph/servicePrincipals/$($apiSp.id)/appRoleAssignedTo").value |
+    Where-Object { $_.principalId -eq $me -and $_.appRoleId -eq $roleId })
+  if ($assigned.Count -eq 0) {
     Invoke-Graph POST "$graph/servicePrincipals/$($apiSp.id)/appRoleAssignedTo" @{
       principalId = $me; resourceId = $apiSp.id; appRoleId = $roleId
     } | Out-Null
     Write-Host "Assigned role $AssignMeRole to you."
-  } catch { Write-Warning "Role assignment skipped (it may already exist): $_" }
+  } else {
+    Write-Host "You already have role $AssignMeRole."
+  }
 }
 
 Write-Host ''
-Write-Host 'Done. Grant admin consent for the Web app in the portal if your tenant requires it:'
-Write-Host "  Entra ID > App registrations > $WebName > API permissions > Grant admin consent"
+Write-Host '=== Copy these values ===' -ForegroundColor Green
+Write-Host "ENTRA_TENANT_ID     = $TenantId"
+Write-Host "ENTRA_API_CLIENT_ID = $($api.appId)"
+Write-Host "ENTRA_WEB_CLIENT_ID = $($web.appId)"
 Write-Host ''
-Write-Host '--- API (dotnet user-secrets, run in src/api/TenancyManager.Api) ---'
-Write-Host "dotnet user-secrets set AzureAd:TenantId $TenantId"
-Write-Host "dotnet user-secrets set AzureAd:ClientId $($api.appId)"
-Write-Host "dotnet user-secrets set AzureAd:Audience api://$($api.appId)"
-Write-Host ''
-Write-Host '--- Web (src/web/.env.local) ---'
-Write-Host 'VITE_AUTH_MODE=entra'
-Write-Host "VITE_ENTRA_TENANT_ID=$TenantId"
-Write-Host "VITE_ENTRA_CLIENT_ID=$($web.appId)"
-Write-Host "VITE_ENTRA_API_SCOPE=api://$($api.appId)/access_as_user"
-Write-Host ''
-Write-Host '--- azd / GitHub environment variables ---'
-Write-Host "ENTRA_TENANT_ID=$TenantId"
-Write-Host "ENTRA_API_CLIENT_ID=$($api.appId)"
-Write-Host "ENTRA_WEB_CLIENT_ID=$($web.appId)"
-Write-Host ''
-Write-Host 'After deploying, add the Static Web App URL as an extra SPA redirect URI (re-run with -SpaRedirectUris).'
+Write-Host 'Set them in your azd environment:'
+Write-Host "  azd env set ENTRA_TENANT_ID $TenantId"
+Write-Host "  azd env set ENTRA_API_CLIENT_ID $($api.appId)"
+Write-Host "  azd env set ENTRA_WEB_CLIENT_ID $($web.appId)"

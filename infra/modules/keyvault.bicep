@@ -10,6 +10,9 @@ param adminPrincipalId string = ''
 
 param postgresConnectionString string
 
+@description('Purge protection cannot be turned off once on. Enable for prod; off for dev so the name can be reused after azd down --purge.')
+param enablePurgeProtection bool = false
+
 @secure()
 param postgresAdminPassword string
 
@@ -23,7 +26,7 @@ resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enableRbacAuthorization: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 30
-    enablePurgeProtection: true
+    enablePurgeProtection: enablePurgeProtection ? true : null
   }
 }
 

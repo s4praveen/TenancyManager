@@ -12,20 +12,20 @@ services:
     docker:
       path: ../Dockerfile
       context: ../../..
+      # Build the image in Azure Container Registry, so no local Docker is needed.
+      remoteBuild: true
   web:
     project: ./src/web
     language: js
     host: staticwebapp
     dist: dist
     hooks:
+      # Runs before azd builds the SPA; azd passes provision outputs (API_URL) and
+      # `azd env set` values (ENTRA_*) as environment variables.
       prepackage:
-        shell: sh
-        # azd exposes provision outputs and azd env values (azd env set ...) as env vars here.
-        run: >-
-          npm ci &&
-          VITE_AUTH_MODE=entra
-          VITE_API_BASE_URL="$API_URL"
-          VITE_ENTRA_TENANT_ID="$ENTRA_TENANT_ID"
-          VITE_ENTRA_CLIENT_ID="$ENTRA_WEB_CLIENT_ID"
-          VITE_ENTRA_API_SCOPE="api://$ENTRA_API_CLIENT_ID/access_as_user"
-          npm run build
+        windows:
+          shell: pwsh
+          run: ../../scripts/azd/write-web-env.ps1
+        posix:
+          shell: sh
+          run: ../../scripts/azd/write-web-env.sh

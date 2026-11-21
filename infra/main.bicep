@@ -65,6 +65,7 @@ module keyVault 'modules/keyvault.bicep' = {
     adminPrincipalId: principalId
     postgresConnectionString: postgres.outputs.connectionStringTemplate
     postgresAdminPassword: postgresAdminPassword
+    enablePurgeProtection: environmentName == 'prod'
   }
 }
 

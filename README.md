@@ -57,13 +57,17 @@ Agency roles: `AgencyAdmin`, `Agent`, `Accounts`, `ReadOnly`. Assign them under 
 
 ## Azure
 
-```bash
+First time? Follow the step-by-step guide in [docs/azure-deployment.md](docs/azure-deployment.md).
+
+```powershell
 azd env new dev
+azd env set AZURE_LOCATION uksouth
 azd env set ENTRA_TENANT_ID <id>; azd env set ENTRA_API_CLIENT_ID <id>; azd env set ENTRA_WEB_CLIENT_ID <id>
 azd env set POSTGRES_ADMIN_PASSWORD <strong-password>
 azd up                                                  # defaults to UK South
 ```
 
 This provisions Container Apps (API), Static Web Apps (web), PostgreSQL Flexible Server, Key Vault,
-Container Registry, Log Analytics and App Insights ([infra/](infra/)). [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
+Container Registry, Log Analytics and App Insights ([infra/](infra/)). The API image is built inside Azure
+Container Registry, so local Docker isn't needed. [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
 does the same from GitHub using OIDC.
