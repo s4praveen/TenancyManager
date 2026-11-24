@@ -1,45 +1,188 @@
-name: Deploy to Azure
+name: Deploy (CD)
 
-# Manual for now. Requires (Settings → Environments → <env>):
-#   vars:    AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, AZURE_LOCATION (uksouth),
-#            ENTRA_TENANT_ID, ENTRA_API_CLIENT_ID, ENTRA_WEB_CLIENT_ID
-#   secrets: POSTGRES_ADMIN_PASSWORD
-# AZURE_CLIENT_ID is an app registration with a federated credential for this repo/environment (OIDC, no secrets).
+# Builds the API image → pushes it to GitHub Container Registry (ghcr.io) → deploys infra/ to Azure
+# (which points the Container App at that image) → builds the SPA and uploads it to the Static Web App.
+#
+# Runs on every push to main that touches deployable code, and manually from the Actions tab.
+# Until AZURE_CLIENT_ID is set the Azure jobs are skipped (the image is still built and pushed).
+#
+# GitHub → Settings → Secrets and variables → Actions (repository level, because a job-level `if`
+# can't see Environment-scoped variables; an Environment can still override them for test/prod):
+#   variables: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID   (from scripts/azure/setup-github-deploy.ps1)
+#              ENTRA_TENANT_ID, ENTRA_API_CLIENT_ID, ENTRA_WEB_CLIENT_ID (from scripts/entra/register-apps.ps1)
+#              AZURE_LOCATION (optional, default uksouth), USE_POSTGRES (optional, default false)
+#   secrets:   POSTGRES_ADMIN_PASSWORD (only if USE_POSTGRES=true)
+#              GHCR_PULL_TOKEN         (only if the image package is private; classic PAT with read:packages)
+# The jobs run in the GitHub Environment named below; Azure trusts that name (OIDC federated credential).
+# See docs/azure-deployment.md.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'seed/**'
+      - 'infra/**'
+      - 'Directory.*.props'
+      - 'global.json'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       environment:
-        description: azd environment name
+        description: GitHub Environment (and Azure resource group suffix)
         type: choice
         options: [dev, test, prod]
         default: dev
 
 permissions:
-  id-token: write
   contents: read
 
+concurrency:
+  # Never run two deployments of the same environment at once, and never cancel one half-way.
+  group: deploy-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  ENVIRONMENT_NAME: ${{ inputs.environment || 'dev' }}
+
 jobs:
-  deploy:
+  image:
+    name: Build + push API image
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
-    env:
-      AZURE_ENV_NAME: ${{ inputs.environment }}
-      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
-      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
-      ENTRA_API_CLIENT_ID: ${{ vars.ENTRA_API_CLIENT_ID }}
-      ENTRA_WEB_CLIENT_ID: ${{ vars.ENTRA_WEB_CLIENT_ID }}
-      POSTGRES_ADMIN_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-dotnet@v5
-        with: { global-json-file: global.json }
+      - id: meta
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"   # registry paths must be lower case
+          echo "image=ghcr.io/${owner}/tenancymanager-api:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and push
+        run: |
+          docker build -f src/api/Dockerfile \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            -t "${{ steps.meta.outputs.image }}" .
+          docker push "${{ steps.meta.outputs.image }}"
+
+  infra:
+    name: Deploy Azure resources + API
+    needs: image
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    if: vars.AZURE_CLIENT_ID != ''
+    permissions:
+      contents: read
+      id-token: write # OIDC sign-in to Azure, no stored Azure password
+    outputs:
+      api_url: ${{ steps.deploy.outputs.api_url }}
+      web_url: ${{ steps.deploy.outputs.web_url }}
+      swa_name: ${{ steps.deploy.outputs.swa_name }}
+      resource_group: ${{ steps.deploy.outputs.resource_group }}
+    env:
+      API_IMAGE: ${{ needs.image.outputs.image }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'uksouth' }}
+      ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+      ENTRA_API_CLIENT_ID: ${{ vars.ENTRA_API_CLIENT_ID }}
+      USE_POSTGRES: ${{ vars.USE_POSTGRES || 'false' }}
+      POSTGRES_ADMIN_PASSWORD: ${{ secrets.POSTGRES_ADMIN_PASSWORD }}
+      REGISTRY_USERNAME: ${{ secrets.GHCR_PULL_TOKEN != '' && github.repository_owner || '' }}
+      REGISTRY_PASSWORD: ${{ secrets.GHCR_PULL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Image is pullable by Azure
+        if: env.REGISTRY_PASSWORD == ''
+        run: |
+          if ! docker manifest inspect "$API_IMAGE" > /dev/null 2>&1; then
+            echo "::error::Azure can't pull $API_IMAGE anonymously. Make the package public (GitHub → your profile → Packages → tenancymanager-api → Package settings → Change visibility → Public) and re-run, or add a GHCR_PULL_TOKEN secret. See docs/azure-deployment.md."
+            exit 1
+          fi
+      - name: Check settings
+        run: |
+          missing=""
+          for v in ENTRA_TENANT_ID ENTRA_API_CLIENT_ID; do [ -n "${!v}" ] || missing="$missing $v"; done
+          if [ "$USE_POSTGRES" = "true" ] && [ -z "$POSTGRES_ADMIN_PASSWORD" ]; then missing="$missing POSTGRES_ADMIN_PASSWORD"; fi
+          if [ -n "$missing" ]; then echo "::error::Missing environment settings:$missing"; exit 1; fi
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - id: deploy
+        name: az deployment sub create
+        run: |
+          az deployment sub create \
+            --name "tenancymanager-${ENVIRONMENT_NAME}-${GITHUB_RUN_NUMBER}" \
+            --location "$AZURE_LOCATION" \
+            --parameters infra/main.bicepparam \
+            --query properties.outputs -o json > outputs.json
+          out() { jq -r ".$1.value" outputs.json; }
+          {
+            echo "api_url=$(out API_URL)"
+            echo "web_url=$(out WEB_URL)"
+            echo "swa_name=$(out STATIC_WEB_APP_NAME)"
+            echo "resource_group=$(out AZURE_RESOURCE_GROUP)"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Deployed ${ENVIRONMENT_NAME} ($(out DATA_PROVIDER) data)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web: $(out WEB_URL)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API: $(out API_URL)" >> "$GITHUB_STEP_SUMMARY"
+      - name: API health
+        run: |
+          # The API scales to zero, so the first request can take a while.
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 20 "${{ steps.deploy.outputs.api_url }}/health"; then echo; exit 0; fi
+            echo "not ready yet ($i/12)"; sleep 10
+          done
+          echo "::error::API did not become healthy. Check: az containerapp logs show -g ${{ steps.deploy.outputs.resource_group }} -n <app> --type console"
+          exit 1
+
+  web:
+    name: Build + deploy web
+    needs: infra
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: src/web
+    steps:
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
-        with: { node-version: 24 }
-      - uses: Azure/setup-azd@v2
-      - name: azd login (OIDC)
-        run: >-
-          azd auth login --client-id "${{ vars.AZURE_CLIENT_ID }}"
-          --federated-credential-provider github --tenant-id "${{ vars.AZURE_TENANT_ID }}"
-      - run: azd provision --no-prompt
-      - run: azd deploy --no-prompt
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - run: npm ci
+      - name: Build (settings are baked into the bundle at build time)
+        run: npm run build
+        env:
+          VITE_AUTH_MODE: entra
+          VITE_API_BASE_URL: ${{ needs.infra.outputs.api_url }}
+          VITE_ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+          VITE_ENTRA_CLIENT_ID: ${{ vars.ENTRA_WEB_CLIENT_ID }}
+          VITE_ENTRA_API_SCOPE: api://${{ vars.ENTRA_API_CLIENT_ID }}/access_as_user
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - id: swa
+        name: Get Static Web App deployment token
+        run: |
+          token=$(az staticwebapp secrets list -n "${{ needs.infra.outputs.swa_name }}" \
+            -g "${{ needs.infra.outputs.resource_group }}" --query properties.apiKey -o tsv)
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa.outputs.token }}
+          action: upload
+          app_location: src/web/dist
+          skip_app_build: true
+          skip_api_build: true
+      - run: echo "Web deployed to ${{ needs.infra.outputs.web_url }}" >> "$GITHUB_STEP_SUMMARY"

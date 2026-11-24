@@ -62,12 +62,14 @@ Vite + React + TS, MUI, React Router, TanStack Query. An `AuthProvider` abstract
 `DevAuthProvider` (role picker → headers) and `EntraAuthProvider` (MSAL, `acquireTokenSilent` → bearer).
 The mode is chosen by `VITE_AUTH_MODE`. Orval generates a fetch client with a custom mutator that adds auth.
 
-### Azure (authored, not deployed)
-`azd` + Bicep:
+### Azure
+Bicep (`infra/`), deployed by the GitHub Actions CD workflow (`deploy.yml`, OIDC sign-in, no stored Azure credentials):
+- The API image is built in Actions and pushed to GitHub Container Registry (no Azure Container Registry, which saves cost for the PoC)
 - Log Analytics, Application Insights
-- Container Registry, Container Apps environment, API container app with user-assigned managed identity
-- PostgreSQL Flexible Server (Entra auth + password stored in Key Vault)
-- Key Vault (RBAC), Static Web App for the SPA
+- Container Apps environment, API container app (scale to zero) with user-assigned managed identity
+- Static Web App (Free) for the SPA
+- `usePostgres` (default `false` for the PoC): when false, the API serves the JSON seed data baked into the image.
+  When true, the deployment adds PostgreSQL Flexible Server and Key Vault (RBAC), which holds the connection string.
 
 Region parameter defaults to `uksouth`.
 

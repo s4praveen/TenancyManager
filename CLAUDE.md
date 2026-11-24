@@ -24,7 +24,7 @@ different tenancy law.
 | Specs | **OpenSpec** (`openspec/`) — the source of truth for behaviour |
 | BDD | **Reqnroll** (`tests/TenancyManager.AcceptanceTests`) for API, **Playwright** (`tests/e2e`) for UI |
 | Unit tests | xUnit (API), Vitest + React Testing Library (web) |
-| Infra | Bicep + `azd` (`infra/`, `azure.yaml`), GitHub Actions (`.github/workflows`) |
+| Infra | Bicep (`infra/`, `main.bicepparam`). GitHub Actions for CI and CD (`.github/workflows`); `deploy.yml` pushes the API image to ghcr.io and deploys via OIDC. `USE_POSTGRES=false` (the PoC default) runs the JSON provider in Azure. |
 
 ## Repository layout
 

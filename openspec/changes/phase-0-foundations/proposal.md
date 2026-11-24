@@ -17,7 +17,7 @@ or PostgreSQL, and a spec-first BDD pipeline. Without these, every later phase w
 - A `/health` endpoint.
 - New React + TypeScript SPA with sign-in (Dev role picker or MSAL), a "who am I" header and a property list.
 - Tests: xUnit unit tests, Reqnroll acceptance tests, provider contract tests (Postgres via Testcontainers), Vitest, a Playwright smoke test.
-- Tooling: Docker Compose, Dockerfiles, Bicep + `azd` for Azure, GitHub Actions CI, an OpenSpec requirement→test traceability check, an Entra app registration script.
+- Tooling: Docker Compose, Dockerfiles, Bicep for Azure, GitHub Actions CI and CD (image on ghcr.io), an OpenSpec requirement→test traceability check, an Entra app registration script.
 
 ## Capabilities
 

@@ -1,17 +1,15 @@
-// TenancyManager Azure environment (one resource group per azd environment).
-// Provision with `azd up` (or `azd provision`). Region defaults to UK South for UK data residency.
+// TenancyManager Azure environment (one resource group per environment name).
+// Deployed by .github/workflows/deploy.yml with `az deployment sub create --parameters infra/main.bicepparam`.
+// Region defaults to UK South for UK data residency.
 targetScope = 'subscription'
 
 @minLength(1)
 @maxLength(32)
-@description('azd environment name, e.g. dev, test, prod. Used in resource names.')
+@description('Environment name, e.g. dev, test, prod. Used in resource names.')
 param environmentName string
 
 @description('Primary region for all data-bearing resources.')
 param location string = 'uksouth'
-
-@description('Object id of the deploying user; granted Key Vault secrets access for troubleshooting.')
-param principalId string = ''
 
 @description('Entra ID tenant that signs agents in (single tenant).')
 param entraTenantId string
@@ -19,15 +17,30 @@ param entraTenantId string
 @description('Client id of the TenancyManager-API app registration (token audience).')
 param entraApiClientId string
 
+@description('Full API image reference, e.g. ghcr.io/<owner>/tenancymanager-api:<git-sha>.')
+param apiImage string
+
+@description('Registry login for a private image. Leave the password empty when the image is public.')
+param registryServer string = 'ghcr.io'
+param registryUsername string = ''
 @secure()
-@description('PostgreSQL administrator password. Phase 7 replaces password auth with Entra ID auth.')
-param postgresAdminPassword string
+param registryPassword string = ''
+
+@description('false = the API serves the JSON seed data (cheapest; read-only PoC). true = PostgreSQL + Key Vault.')
+param usePostgres bool = false
+
+@secure()
+@description('PostgreSQL administrator password. Required only when usePostgres is true.')
+param postgresAdminPassword string = ''
+
+@description('Optional user object id granted Key Vault secrets access for troubleshooting (usePostgres only).')
+param principalId string = ''
 
 @description('Static Web Apps is not offered in UK regions; it serves only static files, no personal data.')
 param staticWebAppLocation string = 'westeurope'
 
 var token = toLower(uniqueString(subscription().id, environmentName, location))
-var tags = { 'azd-env-name': environmentName, application: 'tenancymanager' }
+var tags = { environment: environmentName, application: 'tenancymanager' }
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: 'rg-tenancymanager-${environmentName}'
@@ -45,17 +58,12 @@ module identity 'modules/identity.bicep' = {
   params: { location: location, tags: tags, token: token }
 }
 
-module registry 'modules/registry.bicep' = {
-  scope: rg
-  params: { location: location, tags: tags, token: token, pullPrincipalId: identity.outputs.principalId }
-}
-
-module postgres 'modules/postgres.bicep' = {
+module postgres 'modules/postgres.bicep' = if (usePostgres) {
   scope: rg
   params: { location: location, tags: tags, token: token, adminPassword: postgresAdminPassword }
 }
 
-module keyVault 'modules/keyvault.bicep' = {
+module keyVault 'modules/keyvault.bicep' = if (usePostgres) {
   scope: rg
   params: {
     location: location
@@ -63,7 +71,7 @@ module keyVault 'modules/keyvault.bicep' = {
     token: token
     readerPrincipalIds: [identity.outputs.principalId]
     adminPrincipalId: principalId
-    postgresConnectionString: postgres.outputs.connectionStringTemplate
+    postgresConnectionString: postgres!.outputs.connectionStringTemplate
     postgresAdminPassword: postgresAdminPassword
     enablePurgeProtection: environmentName == 'prod'
   }
@@ -71,7 +79,7 @@ module keyVault 'modules/keyvault.bicep' = {
 
 module web 'modules/staticwebapp.bicep' = {
   scope: rg
-  params: { location: staticWebAppLocation, tags: union(tags, { 'azd-service-name': 'web' }), token: token }
+  params: { location: staticWebAppLocation, tags: tags, token: token }
 }
 
 module api 'modules/containerapps.bicep' = {
@@ -84,8 +92,11 @@ module api 'modules/containerapps.bicep' = {
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
     identityId: identity.outputs.id
     identityClientId: identity.outputs.clientId
-    registryLoginServer: registry.outputs.loginServer
-    postgresConnectionSecretUri: keyVault.outputs.postgresConnectionSecretUri
+    image: apiImage
+    registryServer: registryServer
+    registryUsername: registryUsername
+    registryPassword: registryPassword
+    postgresConnectionSecretUri: usePostgres ? keyVault!.outputs.postgresConnectionSecretUri : ''
     entraTenantId: entraTenantId
     entraApiClientId: entraApiClientId
     allowedOrigin: 'https://${web.outputs.defaultHostname}'
@@ -93,6 +104,7 @@ module api 'modules/containerapps.bicep' = {
 }
 
 output AZURE_RESOURCE_GROUP string = rg.name
-output AZURE_CONTAINER_REGISTRY_ENDPOINT string = registry.outputs.loginServer
 output API_URL string = api.outputs.url
 output WEB_URL string = 'https://${web.outputs.defaultHostname}'
+output STATIC_WEB_APP_NAME string = web.outputs.name
+output DATA_PROVIDER string = usePostgres ? 'Postgres' : 'Json'

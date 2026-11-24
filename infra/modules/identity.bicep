@@ -1,4 +1,4 @@
-// User-assigned managed identity for the API: pulls images, reads Key Vault secrets.
+// User-assigned managed identity for the API: reads Key Vault secrets (when Postgres is on).
 param location string
 param tags object
 param token string

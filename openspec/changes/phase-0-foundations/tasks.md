@@ -30,7 +30,7 @@
 
 ## 5. Delivery
 - [ ] 5.1 Dockerfiles (api, web) and `docker-compose.yml` with postgres (verify: `docker compose config` and `docker compose up --build`)
-- [x] 5.2 Bicep + `azure.yaml` for Azure (verify: `az bicep build --file infra/main.bicep`)
+- [x] 5.2 Bicep + `main.bicepparam` for Azure, deployed by the `deploy.yml` CD workflow (verify: `az bicep build --file infra/main.bicep`)
 - [ ] 5.3 GitHub Actions CI: build, tests, OpenSpec validate, traceability, web, e2e (verify: first green CI run)
 - [x] 5.4 `scripts/check-traceability.mjs` (verify: passes with all Phase 0 IDs tagged)
 - [x] 5.5 `scripts/entra/register-apps.ps1` and README setup docs (verify: script reviewed; not executed)

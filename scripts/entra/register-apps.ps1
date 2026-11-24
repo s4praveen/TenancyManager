@@ -161,7 +161,4 @@ Write-Host "ENTRA_TENANT_ID     = $TenantId"
 Write-Host "ENTRA_API_CLIENT_ID = $($api.appId)"
 Write-Host "ENTRA_WEB_CLIENT_ID = $($web.appId)"
 Write-Host ''
-Write-Host 'Set them in your azd environment:'
-Write-Host "  azd env set ENTRA_TENANT_ID $TenantId"
-Write-Host "  azd env set ENTRA_API_CLIENT_ID $($api.appId)"
-Write-Host "  azd env set ENTRA_WEB_CLIENT_ID $($web.appId)"
+Write-Host 'Add them as GitHub repository variables (Settings > Secrets and variables > Actions > Variables).'

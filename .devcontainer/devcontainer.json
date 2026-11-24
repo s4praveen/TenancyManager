@@ -6,8 +6,7 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": { "version": "24" },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "ghcr.io/devcontainers/features/azure-cli:1": {},
-    "ghcr.io/azure/azure-dev/azd:0": {}
+    "ghcr.io/devcontainers/features/azure-cli:1": {}
   },
   "forwardPorts": [5080, 5173],
   "postCreateCommand": "dotnet tool restore && dotnet restore TenancyManager.slnx && (cd src/web && npm ci) && (cd tests/e2e && npm ci && npx playwright install --with-deps chromium)",

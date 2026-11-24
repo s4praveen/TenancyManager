@@ -57,17 +57,13 @@ Agency roles: `AgencyAdmin`, `Agent`, `Accounts`, `ReadOnly`. Assign them under 
 
 ## Azure
 
+Deployment is continuous: every push to `main` that touches `src/`, `seed/` or `infra/` runs
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml). It:
+1. builds the API image and pushes it to `ghcr.io`
+2. signs in to Azure with OIDC (no stored credentials) and deploys [infra/](infra/) with `az deployment sub create`
+3. builds the SPA and uploads it to the Static Web App
+
+The PoC runs Container Apps (API), Static Web Apps Free (web), Log Analytics and App Insights for roughly £0–1 a
+month. The API serves the JSON seed data. Setting `USE_POSTGRES=true` adds PostgreSQL Flexible Server and Key Vault.
+
 First time? Follow the step-by-step guide in [docs/azure-deployment.md](docs/azure-deployment.md).
-
-```powershell
-azd env new dev
-azd env set AZURE_LOCATION uksouth
-azd env set ENTRA_TENANT_ID <id>; azd env set ENTRA_API_CLIENT_ID <id>; azd env set ENTRA_WEB_CLIENT_ID <id>
-azd env set POSTGRES_ADMIN_PASSWORD <strong-password>
-azd up                                                  # defaults to UK South
-```
-
-This provisions Container Apps (API), Static Web Apps (web), PostgreSQL Flexible Server, Key Vault,
-Container Registry, Log Analytics and App Insights ([infra/](infra/)). The API image is built inside Azure
-Container Registry, so local Docker isn't needed. [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
-does the same from GitHub using OIDC.

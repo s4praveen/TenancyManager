@@ -10,7 +10,7 @@ param adminPrincipalId string = ''
 
 param postgresConnectionString string
 
-@description('Purge protection cannot be turned off once on. Enable for prod; off for dev so the name can be reused after azd down --purge.')
+@description('Purge protection cannot be turned off once on. Enable for prod; off for dev so the name can be reused after the resource group is deleted and the vault purged.')
 param enablePurgeProtection bool = false
 
 @secure()
