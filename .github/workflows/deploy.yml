@@ -121,7 +121,14 @@ jobs:
             --location "$AZURE_LOCATION" \
             --parameters infra/main.bicepparam \
             --query properties.outputs -o json > outputs.json
-          out() { jq -r ".$1.value" outputs.json; }
+          echo "Deployment outputs:"; jq 'map_values(.value)' outputs.json
+          # ARM doesn't always preserve the case of output names, so match them case-insensitively.
+          out() {
+            v=$(jq -r --arg k "$1" 'to_entries[] | select((.key|ascii_downcase) == ($k|ascii_downcase)) | .value.value' outputs.json)
+            if [ -z "$v" ] || [ "$v" = "null" ]; then echo "::error::Deployment output $1 is missing" >&2; exit 1; fi
+            echo "$v"
+          }
+          out API_URL > /dev/null && out AZURE_RESOURCE_GROUP > /dev/null && out STATIC_WEB_APP_NAME > /dev/null
           {
             echo "api_url=$(out API_URL)"
             echo "web_url=$(out WEB_URL)"
@@ -138,7 +145,10 @@ jobs:
             if curl -fsS --max-time 20 "${{ steps.deploy.outputs.api_url }}/health"; then echo; exit 0; fi
             echo "not ready yet ($i/12)"; sleep 10
           done
-          echo "::error::API did not become healthy. Check: az containerapp logs show -g ${{ steps.deploy.outputs.resource_group }} -n <app> --type console"
+          rg="${{ steps.deploy.outputs.resource_group }}"
+          app=$(az containerapp list -g "$rg" --query "[0].name" -o tsv)
+          echo "::error::API did not become healthy. Last log lines below; more with: az containerapp logs show -g $rg -n $app --type console"
+          az containerapp logs show -g "$rg" -n "$app" --type console --tail 50 || true
           exit 1
 
   web:
