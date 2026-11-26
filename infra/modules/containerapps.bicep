@@ -84,8 +84,9 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
               { name: 'ASPNETCORE_ENVIRONMENT', value: 'Production' }
               { name: 'Auth__Mode', value: 'Entra' } // Dev auth is refused in Production (IAM-004)
               { name: 'AzureAd__TenantId', value: entraTenantId }
+              // No AzureAd__Audience: Microsoft.Identity.Web then accepts both the client id (v2 tokens,
+              // which the app registration issues) and api://<client id> (v1 tokens).
               { name: 'AzureAd__ClientId', value: entraApiClientId }
-              { name: 'AzureAd__Audience', value: 'api://${entraApiClientId}' }
               { name: 'Cors__AllowedOrigins__0', value: allowedOrigin }
               { name: 'AZURE_CLIENT_ID', value: identityClientId }
               { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
