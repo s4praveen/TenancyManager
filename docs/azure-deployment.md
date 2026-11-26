@@ -247,7 +247,7 @@ database server. Delete it in the portal to stop its charges.
 | Symptom | Likely cause → fix |
 |---|---|
 | **Image is pullable by Azure** fails | The package is private. See step 6. |
-| `AADSTS700213` / `AADSTS70021: No matching federated identity record` | The federated credential doesn't match. The repository name or environment name (`dev`) differs from what you gave the step-4 script. Re-run it with the exact values. |
+| `AADSTS700213` / `AADSTS70021: No matching federated identity record` | The federated credential doesn't match the subject GitHub presented. The error message shows that subject, for example `repo:owner@123/Repo@456:environment:dev`, which is GitHub's newer *immutable id* format. Add it exactly: App registrations → TenancyManager-GitHub-Deploy → Certificates & secrets → Federated credentials → Add → **Other issuer**, issuer `https://token.actions.githubusercontent.com`, then paste the subject. (Re-running the step-4 script also adds it.) |
 | `AuthorizationFailed` during **az deployment** | Step 4's role assignment hasn't taken effect yet (wait 5 minutes and re-run), or it was run on a different subscription. |
 | `The subscription is not registered to use namespace 'Microsoft.X'` | Step 2 isn't finished. |
 | `RoleAssignmentUpdateNotPermitted` / `does not have authorization to perform action 'Microsoft.Authorization/roleAssignments/write'` | You turned on Postgres without `-AllowRoleAssignments` (see *Later*). |

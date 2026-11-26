@@ -47,15 +47,26 @@ else { Write-Host "Creating app registration $AppName"; $app = Invoke-Az ad app 
 $sp = @(Invoke-Az ad sp list --filter "appId eq '$($app.appId)'" -o json)
 if ($sp.Count -gt 0) { $sp = $sp[0] } else { $sp = Invoke-Az ad sp create --id $app.appId -o json }
 
-# ---- Federated credential: trust GitHub tokens for repo:<owner>/<repo>:environment:<env> -------
-$subject = "repo:${Repo}:environment:$Environment"
-$existing = @(Invoke-Az ad app federated-credential list --id $app.appId -o json) | Where-Object { $_.subject -eq $subject }
-if ($existing) {
-  Write-Host "Federated credential for $subject already exists."
-} else {
+# ---- Federated credentials: trust GitHub tokens for this repo + environment ---------------------
+# GitHub may present the subject in either format, so register both:
+#   classic:   repo:<owner>/<repo>:environment:<env>
+#   immutable: repo:<owner>@<ownerId>/<repo>@<repoId>:environment:<env>  (survives renames; can't be hijacked)
+$subjects = [ordered]@{ "github-$Environment" = "repo:${Repo}:environment:$Environment" }
+try {
+  $gh = Invoke-RestMethod "https://api.github.com/repos/$Repo" -Headers @{ 'User-Agent' = 'tenancymanager-setup' }
+  $subjects["github-$Environment-immutable"] =
+    "repo:$($gh.owner.login)@$($gh.owner.id)/$($gh.name)@$($gh.id):environment:$Environment"
+} catch {
+  Write-Warning "Couldn't read the repository's ids from GitHub ($($_.Exception.Message)). Only the classic subject is registered; if sign-in fails with AADSTS700213, add the subject from the error as a federated credential."
+}
+
+$existing = @(Invoke-Az ad app federated-credential list --id $app.appId -o json)
+foreach ($name in $subjects.Keys) {
+  $subject = $subjects[$name]
+  if ($existing | Where-Object { $_.subject -eq $subject }) { Write-Host "Federated credential for $subject already exists."; continue }
   $file = [IO.Path]::GetTempFileName()
   $body = @{
-    name = "github-$($Repo.Replace('/', '-'))-$Environment"
+    name = $name
     issuer = 'https://token.actions.githubusercontent.com'
     subject = $subject
     audiences = @('api://AzureADTokenExchange')
