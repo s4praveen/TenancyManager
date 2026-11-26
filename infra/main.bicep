@@ -37,6 +37,7 @@ param postgresAdminPassword string = ''
 param principalId string = ''
 
 @description('Static Web Apps is not offered in UK regions; it serves only static files, no personal data.')
+@allowed(['westeurope', 'eastus2', 'centralus', 'westus2', 'eastasia'])
 param staticWebAppLocation string = 'westeurope'
 
 var token = toLower(uniqueString(subscription().id, environmentName, location))

@@ -11,6 +11,7 @@ name: Deploy (CD)
 #   variables: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID   (from scripts/azure/setup-github-deploy.ps1)
 #              ENTRA_TENANT_ID, ENTRA_API_CLIENT_ID, ENTRA_WEB_CLIENT_ID (from scripts/entra/register-apps.ps1)
 #              AZURE_LOCATION (optional, default uksouth), USE_POSTGRES (optional, default false)
+#              STATIC_WEB_APP_LOCATION (optional, default westeurope; Static Web Apps has no UK region)
 #   secrets:   POSTGRES_ADMIN_PASSWORD (only if USE_POSTGRES=true)
 #              GHCR_PULL_TOKEN         (only if the image package is private; classic PAT with read:packages)
 # The jobs run in the GitHub Environment named below; Azure trusts that name (OIDC federated credential).
@@ -85,6 +86,7 @@ jobs:
     env:
       API_IMAGE: ${{ needs.image.outputs.image }}
       AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'uksouth' }}
+      STATIC_WEB_APP_LOCATION: ${{ vars.STATIC_WEB_APP_LOCATION || 'westeurope' }}
       ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
       ENTRA_API_CLIENT_ID: ${{ vars.ENTRA_API_CLIENT_ID }}
       USE_POSTGRES: ${{ vars.USE_POSTGRES || 'false' }}
